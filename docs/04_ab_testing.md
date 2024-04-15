@@ -1,5 +1,7 @@
 # A/B Testing
 
+In A/B testing, we want to evaluate the performance of the **treatment** relative to **control**.
+
 In this notebook, we will explore the critical steps in an A/B test. From the scenario presented [^1], the goal is to _improve user retention_.
 
 The current game difficulty setting is _hard_ (control), and the assumption is lowering the difficulty to _medium_ (treatment) will improve user retention from 70% to 75%.
@@ -27,7 +29,8 @@ In order for us to calculate the _sample size_ that we need to collect for the e
 ```python
 import statsmodels.api as sm
 
-init_prop = 0.7
+# From 70% to 75%
+init_prop = 0.70
 mde_prop = 0.75
 effect_size = sm.stats.proportion_effectsize(init_prop, mde_prop)
 print(
@@ -109,6 +112,18 @@ trials = 1250
 
 
 ```python
+medium_successes / trials, hard_successes / trials
+```
+
+
+
+
+    (0.784, 0.7048)
+
+
+
+
+```python
 from statsmodels.stats.proportion import proportions_ztest
 
 z_stat, p_value = proportions_ztest(
@@ -170,41 +185,133 @@ print("z-stat of {:.2f} and p-value of {:.2f}".format(z_stat, p_value))
 
 
 ```python
+import numpy as np
 from statsmodels.stats.weightstats import ztest
 
-control = [1 if i < 881 else 0 for i in range(1250)]
-treatment = [1 if i < 980 else 0 for i in range(1250)]
+control = np.random.binomial(n=1, p=hard_successes / trials, size=trials)
+treatment = np.random.binomial(n=1, p=medium_successes / trials, size=trials)
 tstat, pvalue = ztest(control, treatment)
 print("t-stat: {:.2f}, p-value: {:.2f}".format(tstat, pvalue))
 ```
 
-    t-stat: -4.56, p-value: 0.00
+    t-stat: -3.79, p-value: 0.00
 
 
 p-value is less than 0.05, so we can reject the null hypothesis.
 
 
 ```python
-control = [1 if i < 881 else 0 for i in range(1250)]
-treatment = [1 if i < 923 else 0 for i in range(1250)]
+control = np.random.binomial(n=1, p=hard_successes / trials, size=trials)
+treatment = np.random.binomial(n=1, p=923 / trials, size=trials)
 tstat, pvalue = ztest(control, treatment)
 print("t-stat: {:.2f}, p-value: {:.2f}".format(tstat, pvalue))
 ```
 
-    t-stat: -1.87, p-value: 0.06
+    t-stat: -0.80, p-value: 0.42
 
 
 p-value is more than 0.05, so we cannot reject the null hypothesis.
 
+## One-sided vs two-sided tests
+
+What are the differences between one-tailed and two-tailed tests?
+The main difference between these two types of tests is that two-tailed tests can show evidence that the control and variation are different, whereas one-tailed tests can show evidence if variation is better than the control.
+
 
 ```python
+def pre_test_analysis(estimated_conversion, uplift_percentage):
+    minimum_detectable_effect = estimated_conversion + uplift_percentage
+    effect_size = sm.stats.proportion_effectsize(
+        estimated_conversion, minimum_detectable_effect
+    )
+    sample_size = sm.stats.zt_ind_solve_power(
+        effect_size=effect_size,
+        nobs1=None,
+        alpha=0.05,
+        power=0.8,
+        alternative="smaller",
+    )
+    return ceil(sample_size)
+```
 
+
+```python
+sample_size = pre_test_analysis(0.7, 0.05)
+print(
+    "sample size of {} required for a change for a {:.0f}% uplift of existing {:.0f}% conversion".format(
+        sample_size, 0.05 * 100, 0.7 * 100
+    )
+)
+```
+
+    sample size of 985 required for a change for a 5% uplift of existing 70% conversion
+
+
+
+```python
+def test_evaluation(control_obs, control_trials, treatment_obs, treatment_trials):
+    z_stat, p_value = proportions_ztest(
+        count=[control_obs, treatment_obs],
+        nobs=[control_trials, treatment_trials],  # [control, treatment]
+        alternative="smaller",  # Alternative hypothesis: control is smaller than treatment.
+    )
+    # Reject the null hypothesis.
+    is_significant = p_value <= 0.05
+    return p_value, is_significant
+```
+
+
+```python
+test_evaluation(0.70 * sample_size, sample_size, 0.75 * sample_size, sample_size)
 ```
 
 
 
 
-    985.0710001811176
+    (0.006476387125691457, True)
+
+
+
+
+```python
+test_evaluation(0.70 * sample_size, sample_size, 0.5 * sample_size, sample_size)
+```
+
+
+
+
+    (1.0, False)
+
+
+
+## Notes
+
+This is basically the flow to do A/B testing. Pre:
+- find out the existing base conversion rate first. You can't improve what you don't know
+- set the target uplift percentage
+- calculate the sample size required
+- define the variant
+
+Run experiment:
+- sample size not reached - collect up to the sample size
+- sample size is reached, but control conversion still haven't reached - continue collecting
+    - if the base conversion still haven't hit after a period of time, stop the experiment
+- otherwise, if it hits, stop the collection and evaluate
+
+Collect data
+- user visit the site
+- based on the user identifier (hash of user id or email, return them control or treatment)
+- submit the event as visited
+- identify the CTA to indicate success, e.g. purchase, or clicking on an add
+- submit the event as clicked
+- the clicked over visited ratio is the conversion rate
+
+Post experiment:
+- we have a few options
+  - turn off the A/B test
+  - evaluate the A/B test, if significant, switch automatically
+  - if not significant, revert back and generate report
+
 
 
 
