@@ -194,20 +194,21 @@ tstat, pvalue = ztest(control, treatment)
 print("t-stat: {:.2f}, p-value: {:.2f}".format(tstat, pvalue))
 ```
 
-    t-stat: -3.79, p-value: 0.00
+    t-stat: -5.20, p-value: 0.00
 
 
 p-value is less than 0.05, so we can reject the null hypothesis.
 
 
 ```python
+np.random.seed(1)
 control = np.random.binomial(n=1, p=hard_successes / trials, size=trials)
 treatment = np.random.binomial(n=1, p=923 / trials, size=trials)
 tstat, pvalue = ztest(control, treatment)
 print("t-stat: {:.2f}, p-value: {:.2f}".format(tstat, pvalue))
 ```
 
-    t-stat: -0.80, p-value: 0.42
+    t-stat: -1.70, p-value: 0.09
 
 
 p-value is more than 0.05, so we cannot reject the null hypothesis.
@@ -262,13 +263,13 @@ def test_evaluation(control_obs, control_trials, treatment_obs, treatment_trials
 
 
 ```python
-test_evaluation(0.70 * sample_size, sample_size, 0.75 * sample_size, sample_size)
+test_evaluation(0.70 * sample_size, sample_size, 0.80 * sample_size, sample_size)
 ```
 
 
 
 
-    (0.006476387125691457, True)
+    (1.4868865191119222e-07, True)
 
 
 
@@ -282,6 +283,167 @@ test_evaluation(0.70 * sample_size, sample_size, 0.5 * sample_size, sample_size)
 
     (1.0, False)
 
+
+
+## Binomial Distribution
+
+
+```python
+import scipy.stats as scs
+from matplotlib.pyplot import subplots
+
+# Control vs treatment
+C_converted = 875
+C_size = 1250
+C_p = C_converted / C_size
+T_converted = 1000
+T_size = 1250
+T_p = T_converted / T_size
+
+ax = subplots(figsize=(16, 8))[1]
+
+
+def plot_binomial_distribution(n, p, ax=None, **kwargs):
+    x = np.arange(scs.binom.ppf(0.01, n, p) - 50, scs.binom.ppf(0.99, n, p) + 50)
+    # x = np.linspace(0, n, n+1)
+    y = scs.binom(n, p).pmf(x)
+    ax.bar(x, y, **kwargs)
+
+
+plot_binomial_distribution(C_converted, C_p, ax=ax, color="red", alpha=0.5)
+plot_binomial_distribution(T_converted, T_p, ax=ax, color="blue", alpha=0.5)
+ax.set_xlabel("converted")
+ax.set_ylabel("probability")
+ax.set_title("Binomial distribution for the control (red) and treatment (blue) group");
+```
+
+
+    
+![png](04_ab_testing_files/04_ab_testing_27_0.png)
+    
+
+
+
+```python
+import matplotlib.pyplot as plt
+from ipywidgets import interactive
+
+
+def f(C_size, C_conv, T_size, T_conv):
+    C_prob = C_conv / C_size
+    T_prob = T_conv / T_size
+    if C_prob > 1:
+        C_prob = 1
+    if T_prob > 1:
+        T_prob = 1
+    print("P-control: {}".format(C_prob))
+    print("P-treatment: {}".format(T_prob))
+    ax = subplots(figsize=(16, 8))[1]
+    plot_binomial_distribution(
+        C_conv,
+        C_prob,
+        ax=ax,
+        color="red",
+        alpha=0.5,
+    )
+    plot_binomial_distribution(
+        T_conv,
+        T_prob,
+        ax=ax,
+        color="blue",
+        alpha=0.5,
+    )
+    ax.set_xlabel("converted")
+    ax.set_ylabel("probability")
+    ax.set_title(
+        "Binomial distribution for the control (red) and treatment (blue) group"
+    )
+    plt.show()
+
+
+interactive_plot = interactive(
+    f,
+    C_size=1250,
+    C_conv=875,
+    T_size=1250,
+    T_conv=1000,
+)
+output = interactive_plot.children[-1]
+output.layout.height = "500px"
+interactive_plot
+```
+
+
+
+
+    interactive(children=(IntSlider(value=1250, description='C_size', max=3750, min=-1250), IntSlider(value=875, d…
+
+
+
+## Normal Distribution
+
+
+```python
+def plot_CI(ax, mu, std, sig_level=0.05, color="grey"):
+    left, right = scs.norm.interval(1 - sig_level, loc=mu, scale=std)
+    ax.axvline(left, c=color, linestyle="--", alpha=0.5)
+    ax.axvline(right, c=color, linestyle="--", alpha=0.5)
+    ax.annotate("0.05", (left, 10))
+    ax.annotate("0.95", (right, 10))
+
+
+def plot_norm_dist(ax, mu, std, with_CI=False, sig_level=0.05, label=None):
+    x = np.linspace(mu - 12 * std, mu + 12 * std, 1000)
+    y = scs.norm(mu, std).pdf(x)
+    ax.plot(x, y, label=label)
+    ax.axvline(x=mu, alpha=0.5, linestyle="--")
+    ax.annotate("mu", (mu, 10))
+
+    # Confidence interval.
+    if with_CI:
+        plot_CI(ax, mu, std, sig_level=sig_level)
+```
+
+
+```python
+import math
+
+p_A = 0.7
+p_B = 0.8
+A_total = 1250
+B_total = 1250
+A_converted = math.ceil(p_A * A_total)
+B_converted = math.ceil(p_B * B_total)
+
+# Standard error of the mean for both groups.
+SE_A = np.sqrt(p_A * (1 - p_A)) / np.sqrt(A_total)
+SE_B = np.sqrt(p_B * (1 - p_B)) / np.sqrt(B_total)
+
+# Plot the null and alternative hypothesis.
+fig, ax = subplots(figsize=(12, 6))
+
+
+plot_norm_dist(ax, p_A, SE_A, with_CI=True, label="A")
+plot_norm_dist(ax, p_B, SE_B, with_CI=True, label="B")
+
+plt.xlabel("Converted Proportion")
+plt.ylabel("PDF")
+plt.legend()
+
+# Plot the null and the alternative hypothesis.
+```
+
+
+
+
+    <matplotlib.legend.Legend at 0x12534c1d0>
+
+
+
+
+    
+![png](04_ab_testing_files/04_ab_testing_31_1.png)
+    
 
 
 ## Notes
@@ -314,8 +476,3 @@ Post experiment:
 
 
 
-
-
-```python
-
-```

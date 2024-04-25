@@ -8,7 +8,7 @@
 -include .env
 export
 
-jupyter:
+jupyter: kernel
 	@poetry run jupyter-lab
 
 kernel:
@@ -16,7 +16,7 @@ kernel:
 	poetry run python -m ipykernel install --user
 
 setup-formatter:
-	poetry add jupyterlab-code-formatter ipywidgets
+	poetry add jupyterlab-vim jupyterlab-code-formatter ipywidgets
 	poetry add black isort
 	jupyter nbextension enable --py widgetsnbextension
 
